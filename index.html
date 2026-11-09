@@ -38,6 +38,14 @@
   #zoom button{pointer-events:auto;width:38px;height:38px;border-radius:11px;border:1px solid rgba(255,255,255,.18);
     background:rgba(10,24,32,.8);color:#fff;font-size:17px;font-weight:800;font-family:inherit}
   /* ---------- messages ---------- */
+  #mission{position:fixed;left:50%;top:max(58px,env(safe-area-inset-top));transform:translateX(-50%);
+    z-index:22;display:none;align-items:center;gap:10px;max-width:92vw;padding:10px 14px;
+    background:rgba(9,22,31,.92);border:2px solid #fcd116;border-radius:14px;color:#fff;
+    font-size:13px;font-weight:700;box-shadow:0 6px 22px rgba(0,0,0,.5);cursor:pointer}
+  #mission.on{display:flex}
+  #mission .mnum{background:#fcd116;color:#14202b;border-radius:8px;padding:2px 7px;font-size:11px;font-weight:900}
+  #mission .mtemps{color:#fcd116;font-variant-numeric:tabular-nums}
+  #mission .mgo{background:#fcd116;color:#14202b;border-radius:9px;padding:5px 10px;font-size:11px;font-weight:900}
   #toast{position:fixed;left:50%;top:64px;transform:translate(-50%,-14px);z-index:30;
     background:rgba(8,20,28,.92);color:#fff;border:1px solid rgba(255,255,255,.18);border-left:4px solid #2ecc71;
     border-radius:11px;padding:8px 14px;font-size:12.5px;font-weight:700;opacity:0;transition:.3s;
@@ -88,6 +96,7 @@
 </div>
 
 <div id="alertes"></div>
+<div id="mission"></div>
 <div id="toast"></div>
 
 <div class="ecran" id="start">
@@ -150,7 +159,7 @@ const SHORE_X = -118;
 const S = {
   playing:false, over:false, t:0, dur:240,
   safety:100, money:520, score:0, resolved:0, missed:0,
-  radars:0, view:0, nextIncident:5
+  radars:0, view:0, mi:0
 };
 
 /* ---------- scene ---------- */
@@ -215,6 +224,68 @@ const COL_ROOF = [0xa0522d, 0x8b4513, 0xb5651d, 0x9c4a2f, 0xa65a37];
 const POOL_VITRES = [];
 for(let i=0;i<6;i++) POOL_VITRES.push(new THREE.MeshLambertMaterial({color:0x9fc3d4}));
 const COL_WALL = [0xe8ddc8, 0xd9cbb0, 0xf0e6d2, 0xcfc0a5, 0xe2d2b6];
+const MAT_FACADE = {};
+
+
+/* ---------- textures procedurales (rendu moins "carton") ---------- */
+function canvasTex(draw, w, h){
+  const c = document.createElement('canvas'); c.width = w||128; c.height = h||128;
+  const x = c.getContext('2d'); draw(x, c.width, c.height);
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  if(THREE.sRGBEncoding !== undefined) t.encoding = THREE.sRGBEncoding;
+  t.anisotropy = 4;
+  return t;
+}
+const hex2 = n => '#' + n.toString(16).padStart(6,'0');
+
+function texFacade(couleur){
+  return canvasTex((x,W,H)=>{
+    x.fillStyle = hex2(couleur); x.fillRect(0,0,W,H);
+    // crepi : grain
+    for(let i=0;i<700;i++){
+      x.fillStyle = 'rgba(0,0,0,'+(Math.random()*0.05)+')';
+      x.fillRect(Math.random()*W, Math.random()*H, 2, 2);
+    }
+    // bandeau d'etage
+    x.fillStyle = 'rgba(255,255,255,.18)'; x.fillRect(0, 0, W, 5);
+    x.fillStyle = 'rgba(0,0,0,.16)'; x.fillRect(0, H-6, W, 6);
+    // deux fenetres + reflet
+    const fw = W*0.28, fh = H*0.46;
+    [W*0.12, W*0.6].forEach(fx=>{
+      x.fillStyle = '#20262e'; x.fillRect(fx, H*0.24, fw, fh);
+      const g = x.createLinearGradient(fx, H*0.24, fx+fw, H*0.24+fh);
+      g.addColorStop(0,'rgba(160,205,235,.75)'); g.addColorStop(.55,'rgba(90,130,165,.35)'); g.addColorStop(1,'rgba(30,45,60,.2)');
+      x.fillStyle = g; x.fillRect(fx+2, H*0.24+2, fw-4, fh-4);
+      x.strokeStyle = 'rgba(255,255,255,.5)'; x.lineWidth = 2;
+      x.beginPath(); x.moveTo(fx+fw/2, H*0.24); x.lineTo(fx+fw/2, H*0.24+fh); x.stroke();
+      // volet
+      x.fillStyle = Math.random()<0.5 ? '#2f6f4f' : '#8a4b32';
+      x.fillRect(fx-4, H*0.24, 4, fh);
+    });
+  }, 96, 96);
+}
+function texToit(){
+  return canvasTex((x,W,H)=>{
+    x.fillStyle = '#b4552f'; x.fillRect(0,0,W,H);
+    for(let y=0;y<H;y+=10){
+      x.fillStyle = 'rgba(0,0,0,.22)'; x.fillRect(0,y,W,2);
+      for(let i=(y/10%2)*8;i<W;i+=16){
+        x.fillStyle = 'rgba(255,255,255,.07)'; x.fillRect(i,y+2,7,8);
+        x.fillStyle = 'rgba(0,0,0,.12)'; x.fillRect(i+8,y+2,8,8);
+      }
+    }
+  }, 96, 96);
+}
+function texSol(base, grain){
+  return canvasTex((x,W,H)=>{
+    x.fillStyle = base; x.fillRect(0,0,W,H);
+    for(let i=0;i<1400;i++){
+      x.fillStyle = 'rgba('+(Math.random()<.5?'255,255,255':'0,0,0')+','+(Math.random()*0.07)+')';
+      x.fillRect(Math.random()*W, Math.random()*H, grain, grain);
+    }
+  }, 128, 128);
+}
 
 function box(w,h,d,mat){ return new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat); }
 
@@ -389,23 +460,33 @@ function buildBlock(bx0,bx1,bz0,bz1){
     const w = cw*rr(0.66,0.9), d = cd*rr(0.66,0.9);
     const h = rr(9, 6 + (cw+cd)*0.22);
     const g = new THREE.Group();
-    const corps = box(w, h, d, new THREE.MeshLambertMaterial({color:pick(COL_WALL)}));
+    const col = pick(COL_WALL);
+    if(!MAT_FACADE[col]) MAT_FACADE[col] = new THREE.MeshLambertMaterial({map: texFacade(col)});
+    const corps = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), MAT_FACADE[col]);
+    // UV a l'echelle reelle : une tuile de texture = ~4 m x 3.4 m
+    const uv = corps.geometry.attributes.uv;
+    for(let i=0;i<uv.count;i++) uv.setXY(i, uv.getX(i)*(w/4), uv.getY(i)*(h/3.4));
+    uv.needsUpdate = true;
     corps.position.y = h/2; g.add(corps);
+    // corniche debordante : casse l'effet boite
+    const corn = box(w*1.08, 0.9, d*1.08, new THREE.MeshLambertMaterial({color:0xd8cdb8}));
+    corn.position.y = h - 0.45; g.add(corn);
+    // ombre portee (disque doux au sol)
+    if(!MAT.ombre) MAT.ombre = new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0.17, depthWrite:false});
+    const om = new THREE.Mesh(new THREE.CircleGeometry(Math.max(w,d)*0.72, 14), MAT.ombre);
+    om.rotation.x = -Math.PI/2; om.position.set(2.5, 0.12, 3.5); om.scale.set(1, 0.8, 1); g.add(om);
     // toit terracotta
     if(rnd() < 0.45){
-      const toit = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*0.78, h*0.22, 4),
-        new THREE.MeshLambertMaterial({color:pick(COL_ROOF)}));
+      if(!MAT.toiture) MAT.toiture = new THREE.MeshLambertMaterial({map: texToit()});
+      const toit = new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*0.78, h*0.22, 4), MAT.toiture);
       toit.rotation.y = Math.PI/4; toit.position.y = h + h*0.11; g.add(toit);
     } else {
-      const toit = box(w*1.06, 1.5, d*1.06, new THREE.MeshLambertMaterial({color:pick(COL_ROOF)}));
+      if(!MAT.toiture) MAT.toiture = new THREE.MeshLambertMaterial({map: texToit()});
+      const toit = new THREE.Mesh(new THREE.BoxGeometry(w*1.06, 1.5, d*1.06), MAT.toiture);
+      const tuv = toit.geometry.attributes.uv;
+      for(let i=0;i<tuv.count;i++) tuv.setXY(i, tuv.getX(i)*(w/3), tuv.getY(i)*(d/3));
+      tuv.needsUpdate = true;
       toit.position.y = h + 0.75; g.add(toit);
-    }
-    // fenetres (2 bandes)
-    const nb = Math.max(1, Math.floor(h/7));
-    for(let k=0;k<nb;k++){
-      const fen = box(w*0.72, 1.5, 0.4, MAT.vitre);
-      fen.position.set(0, 4 + k*6.4, d/2 + 0.1); g.add(fen);
-      const fen2 = fen.clone(); fen2.position.z = -d/2 - 0.1; g.add(fen2);
     }
     // details de toiture
     if(rnd() < 0.55){
@@ -876,7 +957,17 @@ function marqueurIncident(pos, couleur){
   return {g, anneau, faisceau, tete};
 }
 
-function spawnIncident(typeForce){
+function spawnIncident(typeForce, posForce){
+  if(posForce){
+    const type0 = typeForce || pick(Object.keys(TYPES_INCIDENT));
+    const cfg0 = TYPES_INCIDENT[type0];
+    const mk0 = marqueurIncident(posForce, cfg0.color);
+    const inc0 = { type:type0, cfg:cfg0, pos:{x:posForce.x, z:posForce.z},
+      timer:cfg0.duree, max:cfg0.duree, mk:mk0, voiture:null, resolved:false,
+      uid:(window._uid=(window._uid||0)+1) };
+    incidents.push(inc0);
+    return inc0;
+  }
   const xi = Math.floor(rnd()*XS.length), zi = Math.floor(rnd()*ZS.length);
   const n = NODES[xi][zi];
   const v = voisins(xi,zi);
@@ -941,6 +1032,61 @@ function majAlertes(){
     }
   }
   for(const inc of incidents){ if(inc._btn) inc._btn.lastChild.textContent = Math.max(0,Math.ceil(inc.timer)) + 's'; }
+}
+
+
+/* =========================================================
+   MISSIONS SCENARISEES
+   ========================================================= */
+const MISSIONS = [
+  { nom:'Marché Madina',        xi:2, zi:5, type:'incendie', duree:52 },
+  { nom:'Banque centrale',      xi:3, zi:3, type:'vol',      duree:52 },
+  { nom:'Port de pêche',        xi:1, zi:1, type:'accident', duree:52 },
+  { nom:'Avenue de la Corniche',xi:2, zi:7, type:'bouchon',  duree:56 },
+  { nom:'Quartier Kaloum',      xi:0, zi:4, type:'vitesse',  duree:48 },
+  { nom:'Rond-point Bambeto',   xi:4, zi:6, type:'accident', duree:52 }
+];
+let mInc = null, mEtat = 'attente', mT = 3, dernierSec = -1;
+
+function lancerMission(){
+  const L = MISSIONS[S.mi];
+  if(!L){ fin(true); return; }
+  const n = NODES[L.xi][L.zi];
+  mInc = spawnIncident(L.type, {x:n.x, z:n.z});
+  mInc.nom = L.nom; mInc.mission = true;
+  mInc.timer = mInc.max = L.duree;
+  mEtat = 'active';
+  toast('📣 ' + L.nom + ' — ' + mInc.cfg.label);
+  camTarget.x = n.x; camTarget.z = n.z;
+}
+
+function majMissions(dt){
+  if(!S.playing){ const e = document.getElementById('mission'); if(e) e.classList.remove('on'); return; }
+  if(mEtat === 'attente'){
+    mT -= dt;
+    if(mT <= 0) lancerMission();
+  } else if(mEtat === 'active'){
+    if(!mInc || mInc.resolved || incidents.indexOf(mInc) < 0){
+      S.mi++; mInc = null; mEtat = 'attente'; mT = 3.2;
+    }
+  }
+  majMissionHUD();
+}
+
+function majMissionHUD(){
+  const el = document.getElementById('mission');
+  if(!el) return;
+  if(!S.playing || mEtat !== 'active' || !mInc){ el.classList.remove('on'); return; }
+  el.classList.add('on');
+  const sec = Math.ceil(mInc.timer);
+  if(sec !== dernierSec){
+    dernierSec = sec;
+    el.innerHTML = '<span class="mnum">MISSION ' + (S.mi+1) + '/' + MISSIONS.length + '</span>'
+      + '<span>' + mInc.nom + ' · ' + mInc.cfg.label + '</span>'
+      + '<span class="mtemps">' + sec + 's</span>'
+      + '<span class="mgo">' + (mInc.voiture ? 'EN ROUTE' : 'ENVOYER') + '</span>';
+    el.onclick = () => { if(mInc) envoyerPolice(mInc); };
+  }
 }
 
 function policeDispo(inc){
@@ -1051,14 +1197,8 @@ function stepSim(dt){
     avancer(w, dt);
   }
 
-  // incidents
-  S.nextIncident -= dt;
-  const limite = S.night > 0.5 ? 4 : 3;
-  if(S.nextIncident <= 0 && incidents.length < limite){
-    const nouv = spawnIncident();
-    if(S.auto !== false && policeDispo(nouv)) envoyerPolice(nouv);
-    S.nextIncident = rr(9, 15) * Math.pow(0.86, S.radars);
-  }
+  // missions scenarisees
+  majMissions(dt);
   for(let i=incidents.length-1; i>=0; i--){
     const inc = incidents[i];
     inc.timer -= dt;
@@ -1142,7 +1282,15 @@ function boucle(now){
     m.material.opacity = 0.14 + 0.32*Math.abs(Math.sin(S.t*0.7 + m.userData.off));
   });
 
-  camera.position.set(camTarget.x, camDist*Math.sin(camPitch), camTarget.z + camDist*Math.cos(camPitch));
+  if(S.view === 3 && S.playing){
+    const cible = (mInc && incidents.indexOf(mInc) >= 0) ? mInc.pos
+                : (incidents[0] ? incidents[0].pos : camTarget);
+    camTarget.x += (cible.x - camTarget.x) * 0.05;
+    camTarget.z += (cible.z - camTarget.z) * 0.05;
+    camTarget.y = 7;
+  }
+  camera.position.set(camTarget.x + Math.sin(S.t*0.12)*2.5, camDist*Math.sin(camPitch),
+                      camTarget.z + camDist*Math.cos(camPitch));
   camera.lookAt(camTarget);
   renderer.render(scene, camera);
   majHUD();
@@ -1294,12 +1442,38 @@ $('#btnSoin').onclick = ()=>{
   S.safety = Math.min(100, S.safety + 14);
   toast('🛠️ Sécurité renforcée  +14 %');
 };
+const VUES = ['Vue ville','Vue proche','Drone','Immersion'];
+function appliquerVue(){
+  if(S.view === 0){ camDist = 150; camPitch = 0.72; camera.fov = 50; camTarget.y = 0; }
+  else if(S.view === 1){ camDist = 108; camPitch = 0.52; camera.fov = 54; camTarget.y = 0; }
+  else if(S.view === 2){ camDist = 520; camPitch = 1.08; camera.fov = 50; camTarget.y = 0; }
+  else { camDist = 34; camPitch = 0.17; camera.fov = 76; camTarget.y = 7; }
+  camera.updateProjectionMatrix();
+  const b = document.getElementById('btnVue');
+  if(b) b.textContent = VUES[S.view];
+}
 $('#btnVue').onclick = ()=>{
-  S.view = (S.view + 1) % 3;
-  if(S.view === 0){ camDist = 150; camPitch = 0.72; }
-  else if(S.view === 1){ camDist = 125; camPitch = 0.58; }
-  else { camDist = 520; camPitch = 1.1; }
+  S.view = (S.view + 1) % 4;
+  appliquerVue();
 };
+/* casque VR si le navigateur le permet */
+if(navigator.xr && navigator.xr.isSessionSupported){
+  navigator.xr.isSessionSupported('immersive-vr').then(ok=>{
+    if(!ok) return;
+    const b = document.createElement('button');
+    b.id = 'btnVR'; b.textContent = 'Casque VR';
+    b.className = 'btn';
+    b.onclick = async ()=>{
+      try{
+        renderer.xr.enabled = true;
+        const session = await navigator.xr.requestSession('immersive-vr');
+        renderer.xr.setSession(session);
+        toast('Casque VR connecté');
+      }catch(e){ toast('Casque VR indisponible', true); }
+    };
+    document.querySelector('#shop') ? document.querySelector('#shop').appendChild(b) : document.body.appendChild(b);
+  }).catch(()=>{});
+}
 $('#zin').onclick = ()=>{ camDist = Math.max(95, camDist - 55); };
 $('#zout').onclick = ()=>{ camDist = Math.min(700, camDist + 60); };
 
@@ -1308,11 +1482,11 @@ function demarrer(){
   _seed = 20261109 + Math.floor(Math.random()*999);
   S.playing = true; S.over = false; S.t = 0;
   S.safety = 100; S.money = 520; S.score = 0; S.resolved = 0; S.missed = 0;
-  S.radars = 0; S.nextIncident = 6;
+  S.radars = 0; S.mi = 0; mInc = null; mEtat = 'attente'; mT = 3; dernierSec = -1;
   incidents.slice().forEach(i => scene.remove(i.mk.g));
   incidents.length = 0;
   police.forEach(p => { p.state='patrol'; p.path=null; });
-  camTarget.set(35, 0, 20); camDist = 150; camPitch = 0.72; S.view = 0;
+  camTarget.set(35, 0, 20); camDist = 150; camPitch = 0.72; S.view = 0; appliquerVue();
   $('#start').classList.add('cache');
   $('#end').classList.add('cache');
   toast('Bonne patrouille ! Touche un incident pour envoyer une unité');
