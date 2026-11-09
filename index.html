@@ -57,6 +57,13 @@
     background:linear-gradient(180deg,#fcd116,#e6a800);color:#14202a;font-size:15px;font-weight:900;
     letter-spacing:.6px;box-shadow:0 8px 24px rgba(252,209,22,.32);font-family:inherit;cursor:pointer}
   .ecran .sous{font-size:11px;color:#8fb0c1;letter-spacing:1.4px;text-transform:uppercase;font-weight:700}
+  #alertes{position:fixed;left:8px;top:86px;display:flex;flex-direction:column;gap:6px;z-index:12;max-width:46vw}
+  .alerte{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:12px;color:#fff;font-weight:800;font-size:14px;
+    background:rgba(10,24,34,.92);border:2px solid var(--c,#ff5252);box-shadow:0 4px 14px rgba(0,0,0,.45);
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation;animation:pulse 1s infinite}
+  .alerte i{font-style:normal;color:#fcd116;font-size:13px;margin-left:auto}
+  .alerte.prise{animation:none;opacity:.75;border-style:dashed}
+  @keyframes pulse{50%{transform:scale(1.04)}}
   .cache{display:none!important}
 </style>
 </head>
@@ -80,6 +87,7 @@
   <button id="zout">−</button>
 </div>
 
+<div id="alertes"></div>
 <div id="toast"></div>
 
 <div class="ecran" id="start">
@@ -179,7 +187,7 @@ scene.fog = new THREE.Fog(0x9ecfe6, 520, 1500);
 
 const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 4000);
 const camTarget = new THREE.Vector3(35, 0, 20);
-let camDist = 215, camPitch = 0.72;
+let camDist = 150, camPitch = 0.72;
 camera.position.set(camTarget.x, camDist*Math.sin(camPitch), camTarget.z + camDist*Math.cos(camPitch));
 camera.lookAt(camTarget);
 
@@ -845,24 +853,24 @@ populer();
    5. INCIDENTS ET INTERVENTIONS
    ========================================================= */
 const TYPES_INCIDENT = {
-  accident: {label:'Accident',   color:0xff4d4d, duree:32, gain:45, pts:12},
-  vol:      {label:'Cambriolage',color:0x4d8bff, duree:30, gain:60, pts:15},
-  bouchon:  {label:'Embouteillage',color:0xffb300, duree:36, gain:30, pts:8},
-  vitesse:  {label:'Excès de vitesse',color:0xb44dff, duree:24, gain:25, pts:6},
-  incendie: {label:'Incendie',   color:0xff7a1a, duree:28, gain:80, pts:20}
+  accident: {label:'Accident',   color:0xff4d4d, duree:55, gain:45, pts:12},
+  vol:      {label:'Cambriolage',color:0x4d8bff, duree:55, gain:60, pts:15},
+  bouchon:  {label:'Embouteillage',color:0xffb300, duree:60, gain:30, pts:8},
+  vitesse:  {label:'Excès de vitesse',color:0xb44dff, duree:48, gain:25, pts:6},
+  incendie: {label:'Incendie',   color:0xff7a1a, duree:50, gain:80, pts:20}
 };
 
 function marqueurIncident(pos, couleur){
   const g = new THREE.Group();
-  const anneau = new THREE.Mesh(new THREE.RingGeometry(5.5, 7.6, 22),
+  const anneau = new THREE.Mesh(new THREE.RingGeometry(11, 16, 26),
     new THREE.MeshBasicMaterial({color:couleur, transparent:true, opacity:0.9, side:THREE.DoubleSide}));
   anneau.rotation.x = -Math.PI/2; anneau.position.y = 0.4; g.add(anneau);
-  const faisceau = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 2.4, 26, 10, 1, true),
+  const faisceau = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 5, 60, 10, 1, true),
     new THREE.MeshBasicMaterial({color:couleur, transparent:true, opacity:0.32, side:THREE.DoubleSide}));
-  faisceau.position.y = 13; g.add(faisceau);
-  const tete = new THREE.Mesh(new THREE.SphereGeometry(2.1, 10, 8),
+  faisceau.position.y = 30; g.add(faisceau);
+  const tete = new THREE.Mesh(new THREE.SphereGeometry(5.2, 12, 10),
     new THREE.MeshBasicMaterial({color:couleur}));
-  tete.position.y = 26; g.add(tete);
+  tete.position.y = 62; g.add(tete);
   g.position.set(pos.x, 0, pos.z);
   scene.add(g);
   return {g, anneau, faisceau, tete};
@@ -881,7 +889,7 @@ function spawnIncident(typeForce){
   const mk = marqueurIncident(pos, cfg.color);
   const inc = {
     type, cfg, pos, timer: cfg.duree, max: cfg.duree,
-    mk, voiture: null, resolved:false
+    mk, voiture: null, resolved:false, uid:(window._uid=(window._uid||0)+1)
   };
   incidents.push(inc);
   // vehicule en cause sur place
@@ -909,6 +917,30 @@ function cheminVers(depuis, cible){
   let cur = meilleur;
   while(cur && cur !== debut){ const [xi,zi] = cur.split('_').map(Number); out.unshift({xi,zi}); cur = parent[cur]; }
   return out;
+}
+
+function focusIncident(inc){
+  camTarget.x += (inc.pos.x - camTarget.x)*1;
+  camTarget.z += (inc.pos.z - camTarget.z)*1;
+  camDist = Math.min(camDist, 150);
+}
+function majAlertes(){
+  const box = document.getElementById('alertes');
+  if(!box) return;
+  const ids = incidents.map(i=>i.uid).join(',');
+  const cle = ids + '|' + incidents.map(i=>i.voiture?1:0).join('');
+  if(box._cle !== cle){
+    box._cle = cle; box.innerHTML = '';
+    for(const inc of incidents){
+      const b = document.createElement('button');
+      b.className = 'alerte' + (inc.voiture ? ' prise' : '');
+      b.style.setProperty('--c', '#' + inc.cfg.color.toString(16).padStart(6,'0'));
+      b.innerHTML = '<span>' + (inc.voiture ? '🚔' : '❗') + '</span><span>' + inc.cfg.label + '</span><i></i>';
+      b.onclick = ()=>{ focusIncident(inc); if(!inc.voiture) envoyerPolice(inc); };
+      inc._btn = b; box.appendChild(b);
+    }
+  }
+  for(const inc of incidents){ if(inc._btn) inc._btn.lastChild.textContent = Math.max(0,Math.ceil(inc.timer)) + 's'; }
 }
 
 function policeDispo(inc){
@@ -1023,8 +1055,9 @@ function stepSim(dt){
   S.nextIncident -= dt;
   const limite = S.night > 0.5 ? 4 : 3;
   if(S.nextIncident <= 0 && incidents.length < limite){
-    spawnIncident();
-    S.nextIncident = rr(7, 13) * Math.pow(0.86, S.radars);
+    const nouv = spawnIncident();
+    if(S.auto !== false && policeDispo(nouv)) envoyerPolice(nouv);
+    S.nextIncident = rr(9, 15) * Math.pow(0.86, S.radars);
   }
   for(let i=incidents.length-1; i>=0; i--){
     const inc = incidents[i];
@@ -1032,7 +1065,7 @@ function stepSim(dt){
     const s = 1 + Math.sin(S.t*4)*0.12;
     inc.mk.anneau.scale.set(s, s, s);
     inc.mk.anneau.material.opacity = 0.55 + Math.sin(S.t*4)*0.3;
-    inc.mk.tete.position.y = 26 + Math.sin(S.t*2.4)*1.6;
+    inc.mk.tete.position.y = 62 + Math.sin(S.t*2.4)*3;
 
     // la patrouille arrive
     if(inc.voiture){
@@ -1049,13 +1082,15 @@ function stepSim(dt){
     }
     if(!inc.resolved && inc.timer <= 0){
       S.missed++;
-      S.safety = Math.max(0, S.safety - 9);
-      toast('❌ ' + inc.cfg.label + ' non traité  −9 %', true);
+      S.safety = Math.max(0, S.safety - 6);
+      toast('❌ ' + inc.cfg.label + ' non traité  −6 %', true);
       scene.remove(inc.mk.g);
       if(inc.voiture){ inc.voiture.state='patrol'; inc.voiture.path=null; inc.voiture.incident=null; inc.voiture=null; }
       incidents.splice(i,1);
     }
   }
+
+  majAlertes();
 
   // amendes radar
   if(S.radars > 0) S.money += dt * 1.6 * S.radars;
@@ -1155,7 +1190,7 @@ function tapEcran(cx, cy){
   if(!raycaster.ray.intersectPlane(plan, pt)) return;
 
   // incident le plus proche
-  let best = null, bd = 34;
+  let best = null, bd = 60;
   for(const inc of incidents){
     const d = Math.hypot(inc.pos.x - pt.x, inc.pos.z - pt.z);
     if(d < bd){ bd = d; best = inc; }
@@ -1163,7 +1198,7 @@ function tapEcran(cx, cy){
   if(best){ envoyerPolice(best); return; }
 
   // patrouille touchee -> on l'envoie au premier incident libre
-  let pp = null, pd = 20;
+  let pp = null, pd = 28;
   for(const p of police){
     const d = Math.hypot(p.mesh.position.x - pt.x, p.mesh.position.z - pt.z);
     if(d < pd){ pd = d; pp = p; }
@@ -1261,7 +1296,7 @@ $('#btnSoin').onclick = ()=>{
 };
 $('#btnVue').onclick = ()=>{
   S.view = (S.view + 1) % 3;
-  if(S.view === 0){ camDist = 215; camPitch = 0.72; }
+  if(S.view === 0){ camDist = 150; camPitch = 0.72; }
   else if(S.view === 1){ camDist = 125; camPitch = 0.58; }
   else { camDist = 520; camPitch = 1.1; }
 };
@@ -1277,7 +1312,7 @@ function demarrer(){
   incidents.slice().forEach(i => scene.remove(i.mk.g));
   incidents.length = 0;
   police.forEach(p => { p.state='patrol'; p.path=null; });
-  camTarget.set(35, 0, 20); camDist = 215; camPitch = 0.72; S.view = 0;
+  camTarget.set(35, 0, 20); camDist = 150; camPitch = 0.72; S.view = 0;
   $('#start').classList.add('cache');
   $('#end').classList.add('cache');
   toast('Bonne patrouille ! Touche un incident pour envoyer une unité');
