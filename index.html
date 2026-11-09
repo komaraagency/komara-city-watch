@@ -151,7 +151,7 @@ function pick(a){ return a[Math.floor(rnd()*a.length)]; }
 const XS = [-58, 20, 92, 158, 224];             // rues nord-sud
 const ZS = [-220,-160,-100,-40,20,80,140,200]; // rues est-ouest
 const LIGHT_XI = 1;                            // l'avenue principale (x=20) a des feux
-const AVENUE_X = 20, AVENUE_W = 26;
+const AVENUE_X = 20, AVENUE_W = 18;
 const DIRT_W = 16;
 const SHORE_X = -118;
 
@@ -194,7 +194,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x9ecfe6);
 scene.fog = new THREE.Fog(0x9ecfe6, 520, 1500);
 
-const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 1, 4000);
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 5, 3200);
 const camTarget = new THREE.Vector3(35, 0, 20);
 let camDist = 150, camPitch = 0.72;
 camera.position.set(camTarget.x, camDist*Math.sin(camPitch), camTarget.z + camDist*Math.cos(camPitch));
@@ -233,7 +233,6 @@ function canvasTex(draw, w, h){
   const x = c.getContext('2d'); draw(x, c.width, c.height);
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  if(THREE.sRGBEncoding !== undefined) t.encoding = THREE.sRGBEncoding;
   t.anisotropy = 4;
   return t;
 }
@@ -338,7 +337,8 @@ function optimiserDecor(racine){
     while(p){ if(p.userData && p.userData.dyn){ dyn=true; break; } p=p.parent; }
     if(dyn) return;
     const m = o.material;
-    const cle = (m.map ? 'map_'+m.uuid : ((m.isMeshBasicMaterial?'b':'l') + '_' + (m.color?m.color.getHex():0xffffff) + '_' + m.side));
+    const po = m.polygonOffset ? ('_po' + m.polygonOffsetFactor) : '';
+    const cle = (m.map ? 'map_'+m.uuid : ((m.isMeshBasicMaterial?'b':'l') + '_' + (m.color?m.color.getHex():0xffffff) + '_' + m.side)) + po + (m.transparent?'_t':'');
     let s = seaux.get(cle);
     if(!s){ s = {mat:m, geos:[]}; seaux.set(cle,s); }
     s.geos.push({g:o.geometry, m:o.matrixWorld.clone()});
@@ -373,8 +373,19 @@ function optimiserDecor(racine){
   });
   return total;
 }
+function couche(mat, n){
+  const k = mat.uuid + '_' + n;
+  if(!couche.c) couche.c = {};
+  if(!couche.c[k]){
+    const m = mat.clone();
+    m.polygonOffset = true; m.polygonOffsetFactor = -n; m.polygonOffsetUnits = -n * 4;
+    couche.c[k] = m;
+  }
+  return couche.c[k];
+}
 function plane(w,d,mat,y){
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(w,d), mat);
+  const niveau = Math.max(0, Math.round(((y||0) - 0.0) / 0.03));
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w,d), niveau ? couche(mat, niveau) : mat);
   m.rotation.x = -Math.PI/2; m.position.y = y || 0; return m;
 }
 
@@ -384,9 +395,9 @@ function plane(w,d,mat,y){
 const world = new THREE.Group(); scene.add(world);
 
 // terre / poussiere de la ville
-const ville = plane(430, 940, MAT.dust, 0.02); ville.position.set(145, 0.02, 0); world.add(ville);
+const ville = plane(430, 940, MAT.dust, 0.0); ville.position.set(145, 0.0, 0); world.add(ville);
 // plage
-const plage = plane(56, 940, MAT.sand, 0.04); plage.position.set(-90, 0.04, 0); world.add(plage);
+const plage = plane(56, 940, MAT.sand, 0.2); plage.position.set(-90, 0.2, 0); world.add(plage);
 
 // ocean anime
 const oceanGeo = new THREE.PlaneGeometry(620, 940, 24, 34);
@@ -399,49 +410,96 @@ const ecume = [];
 for(let i=0;i<3;i++){
   const m = new THREE.Mesh(new THREE.PlaneGeometry(7, 900),
     new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:0.5}));
-  m.rotation.x = -Math.PI/2; m.position.set(SHORE_X + i*4, 0.07, 0);
+  m.rotation.x = -Math.PI/2; m.position.set(SHORE_X + i*4, 0.35, 0); m.material.depthWrite = false;
   m.userData.off = i*1.7; m.userData.dyn = true; world.add(m); ecume.push(m);
 }
 
 /* =========================================================
    2. RUES
    ========================================================= */
-function routeNordSud(x, w, mat, trottoirW){
-  const t = plane(w + (trottoirW||6), 940, MAT.trottoir, 0.05);
-  t.position.set(x, 0.05, 0); world.add(t);
-  const r = plane(w, 940, mat, 0.08); r.position.set(x, 0.08, 0); world.add(r);
-}
-function routeEstOuest(z, w, mat, trottoirW){
-  const t = plane(430, w + (trottoirW||6), MAT.trottoir, 0.05);
-  t.position.set(145, 0.05, z); world.add(t);
-  const r = plane(430, w, mat, 0.08); r.position.set(145, 0.08, z); world.add(r);
-}
-
-XS.forEach((x,i)=>{
-  if(i === LIGHT_XI) routeNordSud(x, AVENUE_W, MAT.asphalte, 10);
-  else routeNordSud(x, DIRT_W, MAT.terre, 5);
-});
-ZS.forEach(z => routeEstOuest(z, DIRT_W, MAT.terre, 5));
-
-// marquage de l'avenue principale
-for(let z=-450; z<450; z+=26){
-  const l = plane(0.9, 13, MAT.blanc, 0.1); l.position.set(AVENUE_X, 0.1, z); world.add(l);
-}
-// passages pietons aux carrefours
-ZS.forEach(z=>{
-  for(const dz of [-15, 15]){
-    for(let k=0;k<8;k++){
-      const l = plane(2.6, 7, MAT.blanc, 0.1);
-      l.position.set(AVENUE_X - 9 + k*2.6, 0.1, z + dz + (dz>0?2.6:-2.6));
-      world.add(l);
-    }
+/* --- texture asphalte (grain + usure) --- */
+const TEX_ASPH = canvasTex((x,W,H)=>{
+  x.fillStyle = '#4a4e56'; x.fillRect(0,0,W,H);
+  for(let i=0;i<2600;i++){
+    const v = Math.random()<.5 ? 255 : 0;
+    x.fillStyle = 'rgba('+v+','+v+','+v+','+(Math.random()*0.09)+')';
+    x.fillRect(Math.random()*W, Math.random()*H, 1+Math.random()*2, 1+Math.random()*2);
   }
-});
-// bordures claires de l'avenue
-for(const s of [-1,1]){
-  const b = plane(1.1, 940, new THREE.MeshLambertMaterial({color:0xe7e3da}), 0.09);
-  b.position.set(AVENUE_X + s*(AVENUE_W/2 - 0.6), 0.09, 0); world.add(b);
+  x.strokeStyle = 'rgba(0,0,0,.18)'; x.lineWidth = 1;
+  for(let i=0;i<5;i++){ x.beginPath(); x.moveTo(Math.random()*W, Math.random()*H);
+    x.lineTo(Math.random()*W, Math.random()*H); x.stroke(); }
+}, 128, 128);
+const TEX_TROT = canvasTex((x,W,H)=>{
+  x.fillStyle = '#b9b4a8'; x.fillRect(0,0,W,H);
+  x.strokeStyle = 'rgba(0,0,0,.22)'; x.lineWidth = 2;
+  x.strokeRect(1,1,W-2,H-2);
+  for(let i=0;i<500;i++){
+    x.fillStyle = 'rgba(0,0,0,'+(Math.random()*0.06)+')';
+    x.fillRect(Math.random()*W, Math.random()*H, 2, 2);
+  }
+}, 64, 64);
+const MAT_ASPH = new THREE.MeshLambertMaterial({map: TEX_ASPH});
+const MAT_TROT = new THREE.MeshLambertMaterial({map: TEX_TROT});
+const MAT_JAUNE = new THREE.MeshBasicMaterial({color:0xf3c518});
+const ROUTE_W = 14;
+const TROT_W = 4.5;
+
+function planeTex(w,d,mat,y,rx,ry){
+  const m = plane(w,d,mat,y);
+  const uv = m.geometry.attributes.uv;
+  for(let i=0;i<uv.count;i++) uv.setXY(i, uv.getX(i)*rx, uv.getY(i)*ry);
+  uv.needsUpdate = true;
+  return m;
 }
+function routeNordSud(x, w){
+  const t = planeTex(w + TROT_W*2, 940, MAT_TROT, 0.12, (w+TROT_W*2)/8, 940/8);
+  t.position.set(x, 0.12, 0); world.add(t);
+  const r = planeTex(w, 940, MAT_ASPH, 0.24, w/14, 940/14);
+  r.position.set(x, 0.24, 0); world.add(r);
+  for(const s of [-1,1]){
+    const b = plane(0.7, 940, MAT.blanc, 0.36); b.position.set(x + s*(w/2 - 0.5), 0.36, 0); world.add(b);
+  }
+  for(let z=-450; z<450; z+=14){
+    const l = plane(0.5, 7, MAT_JAUNE, 0.36); l.position.set(x, 0.36, z); world.add(l);
+  }
+}
+function routeEstOuest(z, w){
+  const t = planeTex(430, w + TROT_W*2, MAT_TROT, 0.14, 430/8, (w+TROT_W*2)/8);
+  t.position.set(145, 0.14, z); world.add(t);
+  const r = planeTex(430, w, MAT_ASPH, 0.26, 430/14, w/14);
+  r.position.set(145, 0.26, z); world.add(r);
+  for(const s of [-1,1]){
+    const b = plane(430, 0.7, MAT.blanc, 0.38); b.position.set(145, 0.38, z + s*(w/2 - 0.5)); world.add(b);
+  }
+  for(let x=-60; x<370; x+=14){
+    const l = plane(7, 0.5, MAT_JAUNE, 0.38); l.position.set(x, 0.38, z); world.add(l);
+  }
+}
+
+XS.forEach((x,i)=> routeNordSud(x, i === LIGHT_XI ? AVENUE_W : ROUTE_W));
+ZS.forEach(z => routeEstOuest(z, ROUTE_W));
+
+/* carrefours : carre d'asphalte propre + passages pietons */
+XS.forEach((x,i)=>{
+  const wx = i === LIGHT_XI ? AVENUE_W : ROUTE_W;
+  ZS.forEach(z=>{
+    const c = planeTex(wx, ROUTE_W, MAT_ASPH, 0.5, wx/14, ROUTE_W/14);
+    c.position.set(x, 0.5, z); world.add(c);
+    for(const dz of [-1,1]){
+      for(let k=0;k<7;k++){
+        const l = plane(1.3, 5, MAT.blanc, 0.62);
+        l.position.set(x - (wx/2 - 2) + k*((wx-4)/6), 0.62, z + dz*(ROUTE_W/2 + 3.2)); world.add(l);
+      }
+    }
+    for(const dx of [-1,1]){
+      for(let k=0;k<7;k++){
+        const l = plane(5, 1.3, MAT.blanc, 0.62);
+        l.position.set(x + dx*(wx/2 + 3.2), 0.62, z - (ROUTE_W/2 - 2) + k*((ROUTE_W-4)/6)); world.add(l);
+      }
+    }
+  });
+});
+
 
 /* =========================================================
    3. BATIMENTS, ARBRES, DECOR
@@ -541,8 +599,8 @@ function palmier(x,z,s){
 }
 
 // blocs entre les rues
-function margeX(i){ return XS[i] === AVENUE_X ? 26 : 15; }
-function margeZ(){ return 15; }
+function margeX(i){ return XS[i] === AVENUE_X ? 15 : 12.5; }
+function margeZ(){ return 12.5; }
 for(let i=0;i<XS.length-1;i++){
   for(let j=0;j<ZS.length-1;j++){
     buildBlock(XS[i] + margeX(i), XS[i+1] - margeX(i+1), ZS[j] + margeZ(), ZS[j+1] - margeZ());
@@ -1530,11 +1588,10 @@ window.G = {
   S, step: stepSim, walkers, police, incidents, NODES, FEUX, scene, NB_FUSION, MAT_VITRE: MAT.vitre,
   spawnIncident, envoyerPolice, resoudre, cheminVers, feuVert, camTarget,
   get camDist(){ return camDist; }, set camDist(v){ camDist = v; },
-  demarrer, fin
+  demarrer, fin, appliquerVue, set camPitch(v){ camPitch = v; }
 };
 
 requestAnimationFrame(boucle);
 </script>
-<!-- build4 -->
 </body>
 </html>
